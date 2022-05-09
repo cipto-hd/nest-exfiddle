@@ -4,8 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
 } from '@nestjs/common';
-
-import { FastifyReply } from 'fastify';
+import { Response } from 'express';
 
 @Catch(HttpException)
 export class HttpExceptionFilter<T extends HttpException>
@@ -14,7 +13,7 @@ export class HttpExceptionFilter<T extends HttpException>
   catch(exception: T, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
 
-    const response: FastifyReply<any> = ctx.getResponse<FastifyReply>();
+    const response: Response<any> = ctx.getResponse<Response>();
 
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
@@ -28,6 +27,6 @@ export class HttpExceptionFilter<T extends HttpException>
 
     response
       .status(status)
-      .send({ ...error, timestamp: new Date().toISOString() });
+      .json({ ...error, timestamp: new Date().toISOString() });
   }
 }

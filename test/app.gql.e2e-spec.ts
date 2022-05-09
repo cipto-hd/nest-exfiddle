@@ -1,20 +1,28 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpExceptionFilter } from 'src/common/filters/http-exception.filter';
 import { TimeoutInterceptor } from 'src/common/interceptors/timeout.interceptor';
 import { WrapResponseInterceptor } from 'src/common/interceptors/wrap-response.interceptor';
-import { createMercuriusTestClient } from 'mercurius-integration-testing';
 import { AppModule } from 'src/app.module';
+import request from 'supertest';
+import { createClient } from 'graphql-ws';
+import WebSocket from 'ws';
+
+const sleep = async (ms) => {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+};
 
 describe('AppModule GraphQL (e2e)', () => {
-  let app: NestFastifyApplication;
-  let testClient, subscription;
+  let app: INestApplication;
   const message = 'Salam';
+
+  const baseTest = () => request(app.getHttpServer()).post('/graphql');
+  const publicTest = (query: string) => baseTest().send({ query });
+  // const privateTest = (query: string) =>
+  //   baseTest().set('X-JWT', jwtToken).send({ query });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -33,9 +41,7 @@ describe('AppModule GraphQL (e2e)', () => {
       ],
     }).compile();
 
-    app = moduleFixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    app = moduleFixture.createNestApplication<INestApplication>();
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -52,15 +58,13 @@ describe('AppModule GraphQL (e2e)', () => {
       new WrapResponseInterceptor(),
       new TimeoutInterceptor(),
     );
+
     app.useGlobalFilters(new HttpExceptionFilter());
 
     await app.init();
-
-    testClient = createMercuriusTestClient(app.getHttpAdapter().getInstance());
   });
 
   afterAll(async () => {
-    subscription.unsubscribe();
     app.close();
   });
 
@@ -78,34 +82,62 @@ describe('AppModule GraphQL (e2e)', () => {
         },
       };
 
-      const res = await testClient.query(query);
+      const res = await publicTest(query);
 
-      expect(res).toEqual(expectedResponse);
+      expect(res.body).toEqual(expectedResponse);
       // check if string is indeed from DB
-      expect(res.data.check).toBe('Test Coffee'); //data fron DB
+      expect(res.body.data.check).toBe('Test Coffee'); //data fron DB
     });
 
     /**
-     * For subscription to work, 2 queries has to be performed
-     * Query with default message, take precedence, otherwise the last
+     * Subscription
      */
     it('Subscription', async () => {
       /** Subscribe first, subscribe for helloSaid event */
       const subscriptionQuery = `
-      subscription {
-        helloSaid {
-          message
+        subscription {
+          helloSaid {
+            message
+          }
         }
-      }
-    `;
-      subscription = await testClient.subscribe({
-        query: subscriptionQuery,
-        onData(response) {
-          expect(response).toEqual({
-            data: { helloSaid: { message: expect.any(String) } },
-          });
-        },
-      });
+      `;
+
+      await (async () => {
+        let result, unsubscribe;
+        const gqlClient = createClient({
+          url: 'ws://localhost:3000/graphql',
+          webSocketImpl: WebSocket,
+        });
+
+        await new Promise((resolve, reject) => {
+          unsubscribe = gqlClient.subscribe(
+            {
+              query: subscriptionQuery,
+            },
+            {
+              next: (data) => {
+                result = data;
+                console.log(data);
+                expect(data).toEqual({
+                  data: {
+                    helloSaid: { message: expect.any(String) },
+                  },
+                });
+              },
+              error: (error) => {
+                console.log(error);
+                reject(error);
+              },
+              complete: () => {
+                console.log('subscription complete ');
+                unsubscribe();
+                resolve(result);
+              },
+            },
+          );
+        });
+      })();
+      await sleep(500);
     });
 
     it('should response with default message', async () => {
@@ -122,21 +154,17 @@ describe('AppModule GraphQL (e2e)', () => {
       };
 
       /** Query to publish helloSaid event */
-      expect(await testClient.query(query)).toEqual(expectedResponse);
+      const res = await publicTest(query);
+
+      expect(res.body).toEqual(expectedResponse);
     });
 
     it('should response with custom message', async () => {
       const query = `
-        query($message: String!) {
-          sayHello(messageInput: {content: $message})
-        }
-      `;
-
-      const queryOptions = {
-        variables: {
-          message: message,
-        },
-      };
+          query {
+            sayHello(messageInput: {content: "${message}"})
+          }
+        `;
 
       const expectedResponse = {
         data: {
@@ -145,9 +173,9 @@ describe('AppModule GraphQL (e2e)', () => {
       };
 
       /** Query to publish helloSaid event */
-      expect(await testClient.query(query, queryOptions)).toEqual(
-        expectedResponse,
-      );
+      const res = await publicTest(query);
+
+      expect(res.body).toEqual(expectedResponse);
     });
   });
 });

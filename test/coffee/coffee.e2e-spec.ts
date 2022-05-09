@@ -1,21 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
 import { CoffeeModule } from 'src/coffee/coffee.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { HttpStatus, NotFoundException, ValidationPipe } from '@nestjs/common';
+import {
+  HttpStatus,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { WrapResponseInterceptor } from 'src/common/interceptors/wrap-response.interceptor';
 import { TimeoutInterceptor } from 'src/common/interceptors/timeout.interceptor';
 import { HttpExceptionFilter } from 'src/common/filters/http-exception.filter';
 import { CreateCoffeeDto } from 'src/coffee/dtos/create-coffee.dto';
 import { UpdateCoffeeDto } from 'src/coffee/dtos/update-coffee.dto';
 import { FlavorEntity } from 'src/coffee/entities/flavor.entity';
+import supertest from 'supertest';
 
 describe('[Feature] Coffee (e2e) - /coffeees', () => {
-  let app: NestFastifyApplication;
-  let createdCoffee;
+  let app: INestApplication;
+  let createdCoffee, testClient: supertest.SuperTest<supertest.Test>;
 
   const coffee = {
     name: 'Shipwreck Roast',
@@ -47,9 +49,7 @@ describe('[Feature] Coffee (e2e) - /coffeees', () => {
       ],
     }).compile();
 
-    app = moduleFixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    app = moduleFixture.createNestApplication<INestApplication>();
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -70,12 +70,11 @@ describe('[Feature] Coffee (e2e) - /coffeees', () => {
 
     await app.init();
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/coffees',
-      payload: coffee as CreateCoffeeDto,
-    });
-    createdCoffee = JSON.parse(res.body).data;
+    testClient = supertest(app.getHttpServer());
+
+    createdCoffee = (
+      await testClient.post('/coffees').send(coffee as CreateCoffeeDto)
+    ).body.data;
   });
 
   afterAll(async () => {
@@ -84,43 +83,50 @@ describe('[Feature] Coffee (e2e) - /coffeees', () => {
 
   describe('Create [POST /]', () => {
     it('should return the created coffee on success', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/coffees',
-        payload: coffee as CreateCoffeeDto,
-      });
-      expect(res.statusCode).toEqual(HttpStatus.CREATED);
-      expect(JSON.parse(res.body)).toEqual(
-        expect.objectContaining({ data: expectedCoffee }),
-      );
+      try {
+        const res = await testClient
+          .post('/coffees')
+          .send(coffee as CreateCoffeeDto)
+          .expect(HttpStatus.CREATED);
+
+        expect(res.body).toEqual(
+          expect.objectContaining({ data: expectedCoffee }),
+        );
+      } catch (error) {
+        console.log(error);
+      }
     });
   });
 
   describe('GetAll [GET /]', () => {
     it('should return an array of coffee', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/coffees',
-      });
-      expect(res.statusCode).toEqual(HttpStatus.OK);
-      expect(JSON.parse(res.body)).toEqual(
-        expect.objectContaining({
-          data: expect.arrayContaining([expectedCoffee]),
-        }),
-      );
+      try {
+        const res = await testClient.get('/coffees').expect(HttpStatus.OK);
+
+        expect(res.body).toEqual(
+          expect.objectContaining({
+            data: expect.arrayContaining([expectedCoffee]),
+          }),
+        );
+      } catch (error) {
+        console.log(error);
+      }
     });
   });
 
   describe('GetOne [GET /:id]', () => {
     it('shoudl return coffee on success', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/coffees/${createdCoffee.id}`,
-      });
-      expect(res.statusCode).toEqual(HttpStatus.OK);
-      expect(JSON.parse(res.body)).toEqual(
-        expect.objectContaining({ data: expectedCoffee }),
-      );
+      try {
+        const res = await testClient
+          .get(`/coffees/${createdCoffee.id}`)
+          .expect(HttpStatus.OK);
+
+        expect(res.body).toEqual(
+          expect.objectContaining({ data: expectedCoffee }),
+        );
+      } catch (error) {
+        console.log(error);
+      }
     });
   });
 
@@ -136,47 +142,48 @@ describe('[Feature] Coffee (e2e) - /coffeees', () => {
         !mergedFlavors.includes(flavor) && mergedFlavors.push(flavor);
       });
 
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/coffees/${createdCoffee.id}`,
-        payload: { flavors: newFlavors } as UpdateCoffeeDto,
-      });
+      try {
+        const res = await testClient
+          .patch(`/coffees/${createdCoffee.id}`)
+          .send({ flavors: newFlavors } as UpdateCoffeeDto)
+          .expect(HttpStatus.OK);
 
-      expect(res.statusCode).toEqual(HttpStatus.OK);
-
-      expect(JSON.parse(res.body)).toEqual(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            ...coffee,
-            flavors: expect.arrayContaining(
-              mergedFlavors.map((flavor: string) =>
-                expect.objectContaining({ name: flavor }),
+        expect(res.body).toEqual(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              ...coffee,
+              flavors: expect.arrayContaining(
+                mergedFlavors.map((flavor: string) =>
+                  expect.objectContaining({ name: flavor }),
+                ),
               ),
-            ),
+            }),
           }),
-        }),
-      );
+        );
+      } catch (error) {
+        console.log(error);
+      }
     });
   });
 
   describe('Delete [DELETE /:id]', () => {
     it('should return the deleted coffee on success', async () => {
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/coffees/${createdCoffee.id}`,
-      });
-      expect(res.statusCode).toEqual(HttpStatus.OK);
-      expect(JSON.parse(res.body)).toEqual(
-        expect.objectContaining({ data: expectedCoffee }),
-      );
+      try {
+        const res = await testClient
+          .delete(`/coffees/${createdCoffee.id}`)
+          .expect(HttpStatus.OK);
+
+        expect(res.body).toEqual(
+          expect.objectContaining({ data: expectedCoffee }),
+        );
+      } catch (error) {
+        console.log(error);
+      }
     });
 
-    it('should return the NotfoundException otherwise', async () => {
+    it('should return the NotfoundException after deleted', async () => {
       try {
-        await app.inject({
-          method: 'GET',
-          url: `/coffees/${createdCoffee.id}`,
-        });
+        testClient.get(`/coffees/${createdCoffee.id}`);
       } catch (error) {
         expect(error).toBeInstanceOf(NotFoundException);
         expect(error.message).toEqual(

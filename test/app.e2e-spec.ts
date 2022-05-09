@@ -1,22 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from './../src/app.module';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, INestApplication } from '@nestjs/common';
+import request from 'supertest';
 
 describe('AppController (e2e)', () => {
-  let app: NestFastifyApplication;
+  let app: INestApplication;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
+    app = moduleFixture.createNestApplication<INestApplication>();
     await app.init();
   });
 
@@ -25,11 +20,11 @@ describe('AppController (e2e)', () => {
   });
 
   it('/ (GET)', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/',
-    });
-    expect(res.statusCode).toEqual(HttpStatus.OK);
-    expect(res.body).toBe('Hello World!');
+    request(app.getHttpServer())
+      .get('/')
+      .expect(HttpStatus.OK)
+      .expect((res) => {
+        expect(res.body).toBe('Hello World');
+      });
   });
 });

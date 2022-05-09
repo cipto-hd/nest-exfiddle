@@ -1,6 +1,6 @@
+import { Inject } from '@nestjs/common';
 import {
   Args,
-  Context,
   Field,
   InputType,
   ObjectType,
@@ -9,8 +9,9 @@ import {
   Subscription,
 } from '@nestjs/graphql';
 import { IsOptional } from 'class-validator';
-import { PubSub } from 'mercurius';
+import { PubSub } from 'graphql-subscriptions';
 import { CoffeeService } from './coffee/coffee.service';
+import { PUB_SUB } from './common/common.constants';
 
 @ObjectType()
 class GreetingOutput {
@@ -34,7 +35,10 @@ class MessageInput {
 
 @Resolver()
 export class AppResolver {
-  constructor(private readonly coffeeService: CoffeeService) {}
+  constructor(
+    private readonly coffeeService: CoffeeService,
+    @Inject(PUB_SUB) private readonly pubSub: PubSub,
+  ) {}
 
   @Query(() => String)
   async check() {
@@ -54,7 +58,6 @@ export class AppResolver {
 
   @Query(() => String)
   sayHello(
-    @Context('pubsub') pubSub: PubSub,
     // @Args() messageArg?: MessageArg,
     @Args({
       nullable: true,
@@ -63,12 +66,9 @@ export class AppResolver {
     })
     messageInput?: MessageInput,
   ): string {
-    pubSub.publish({
-      topic: 'helloSaid',
-      payload: {
-        // helloSaid: { message: messageArg.content },
-        helloSaid: { message: messageInput.content },
-      },
+    this.pubSub.publish('helloSaid', {
+      // helloSaid: { message: messageArg.content },
+      helloSaid: { message: messageInput.content },
     });
 
     // return messageArg.content;
@@ -76,7 +76,7 @@ export class AppResolver {
   }
 
   @Subscription(() => GreetingOutput)
-  helloSaid(@Context('pubsub') pubSub: PubSub) {
-    return pubSub.subscribe('helloSaid');
+  helloSaid() {
+    return this.pubSub.asyncIterator('helloSaid');
   }
 }

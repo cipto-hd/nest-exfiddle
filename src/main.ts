@@ -1,9 +1,5 @@
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -13,13 +9,7 @@ import { WrapResponseInterceptor } from './common/interceptors/wrap-response.int
 const PORT = 3000;
 
 async function bootstrap() {
-  const fastifyAdapter = new FastifyAdapter();
-  fastifyAdapter.enableCors({ origin: '*' });
-
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    fastifyAdapter,
-  );
+  const app = await NestFactory.create<INestApplication>(AppModule);
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -46,6 +36,8 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
+
+  app.enableCors();
 
   await app.listen(PORT, () =>
     console.log(`Nest server is listening at http://localhost:${PORT}`),

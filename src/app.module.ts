@@ -1,6 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { GraphQLModule } from '@nestjs/graphql';
-import { MercuriusDriver, MercuriusDriverConfig } from '@nestjs/mercurius';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppResolver } from './app.resolver';
@@ -10,7 +9,10 @@ import { ConfigModule } from '@nestjs/config';
 import { AppConfig } from './config/app.config';
 import { getConnectionOptions } from 'typeorm';
 import { LoggingMiddleware } from './common/middlewares/logging.middleware';
-import redis from 'mqemitter-redis';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { PUB_SUB } from './common/common.constants';
+import { RedisPubSub } from 'graphql-redis-subscriptions';
+import { PubSub } from 'graphql-subscriptions';
 
 @Module({
   imports: [
@@ -25,25 +27,29 @@ import redis from 'mqemitter-redis';
           synchronize: true,
         }),
     }),
-    GraphQLModule.forRoot<MercuriusDriverConfig>({
-      driver: MercuriusDriver,
-      graphiql: true,
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      playground: true,
       autoSchemaFile: true,
-      subscription:
-        process.env.NODE_ENV === 'test'
-          ? true
-          : {
-              emitter: redis({
-                port: 6379,
-                host: '127.0.0.1',
-              }),
-            },
+      subscriptions: {
+        'graphql-ws': {
+          path: '/graphql',
+        },
+      },
     }),
     CoffeeModule,
     // CommonModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AppResolver],
+  providers: [
+    AppService,
+    AppResolver,
+    {
+      provide: PUB_SUB,
+      useValue:
+        process.env.NODE_ENV == 'test' ? new PubSub() : new RedisPubSub(),
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
